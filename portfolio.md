@@ -126,9 +126,9 @@ This is a portfolio project. The architecture reflects real patterns used in ent
 
 ### Overview
 
-The deployment uses a three-tier architecture on Amazon EKS. Each application tier — frontend, backend, and database — runs as an independent Kubernetes workload. Internal communication goes through Kubernetes-native networking; external access goes through AWS infrastructure.
+The deployment uses a three-tier architecture on Amazon EKS. Each tier — frontend, backend, and database — runs as an independent Kubernetes workload. Internal communication goes through Kubernetes-native networking; external access goes through the AWS Application Load Balancer.
 
-The architecture came from the reference project. My job was implementing it correctly on EKS, understanding how the components actually interact, and working through the configuration and troubleshooting required to get it running.
+The reference project defined the architecture. My work was implementing it correctly on EKS — not just applying the manifests, but understanding what each component depended on, what order things had to be done in, and what to check when something didn't work.
 
 ### Architectural Principles
 
@@ -730,35 +730,8 @@ This behavior was observable during deployment validation — terminating a Pod 
 
 ### Debugging Workflow
 
-```bash
-# Check worker nodes
-kubectl get nodes
+The general pattern that worked throughout:
 
-# Check Pod status across the namespace
-kubectl get pods -n workshop
-
-# Check Service configuration
-kubectl get svc -n workshop
-
-# Check PVC binding status
-kubectl get pvc -n workshop
-
-# Get detailed resource information and events
-kubectl describe pod <pod-name> -n workshop
-kubectl describe svc <service-name> -n workshop
-kubectl describe pvc <pvc-name> -n workshop
-
-# Apply updated manifests
-kubectl apply -f .
-
-# Check container logs
-kubectl logs <pod-name> -n workshop
-
-# Clean up all resources
-kubectl delete -f .
-```
-
-The general debugging pattern:
 ```
 Something isn't working
     ↓
@@ -775,7 +748,7 @@ kubectl apply -f .
 Verify again
 ```
 
-The `describe` command was particularly useful because the Events section shows what Kubernetes actually attempted — image pulls, scheduling decisions, probe failures, volume binding attempts. Most root causes were visible there before needing to check logs.
+The `describe` command was particularly useful because the Events section shows what Kubernetes actually attempted — image pulls, scheduling decisions, probe failures, volume binding attempts. Most root causes were visible there before needing to check logs. The full command reference is in Chapter 9.
 
 ### Kubernetes Resource Summary
 
@@ -814,9 +787,9 @@ The deployment wasn't a single `kubectl apply` that produced a working applicati
 
 ### Overview
 
-This deployment wasn't automated through a CI/CD pipeline. It was a sequential, hands-on workflow performed entirely from the Ubuntu EC2 management instance — provisioning infrastructure, building container images, deploying Kubernetes resources, configuring AWS integrations, and validating the complete application flow step by step.
+No CI/CD, no Terraform, no automation. This was a sequential hands-on deployment performed entirely from the Ubuntu EC2 management instance — provisioning infrastructure, building container images, applying Kubernetes manifests, configuring the ALB integration, and verifying the result end to end.
 
-The implementation was completed iteratively rather than as a single uninterrupted run. Infrastructure provisioning, container preparation, Kubernetes configuration, AWS Load Balancer integration, and troubleshooting happened in stages until the complete frontend → backend → database flow was operational and verified in a browser.
+The deployment happened in stages, not as one uninterrupted run. Infrastructure provisioning, container preparation, Kubernetes configuration, and ALB setup each required troubleshooting before they were stable — and the complete frontend → backend → database flow only worked once all those layers were correct simultaneously. Chapter 9 covers the validation commands at each stage; this chapter covers what was done and why, in the order it was done.
 
 ### Deployment Phases
 
@@ -921,39 +894,13 @@ ip-xxx-xxx-xxx-xxx.us-west-2.compute.internal   Ready    <none>   Xm
 
 ### Phase 3 — Container Image Build
 
-Source code was cloned onto the EC2 management instance. Docker builds ran from there.
+Source code was cloned onto the EC2 management instance and Docker builds ran from there. The backend build failed because the Dockerfile was named `Dockefile` — one character off. Renaming it unblocked the build. MongoDB used the official public image — no custom build needed.
 
-The backend build failed initially because the Dockerfile was misnamed `Dockefile` instead of `Dockerfile`. Renaming the file and rebuilding resolved it:
-
-```bash
-mv Dockefile Dockerfile
-docker build -t <backend-image-name> .
-```
-
-MongoDB used the official public Docker image — no custom build required.
+The full build, tag, and push command sequence is in Chapter 9.
 
 ### Phase 4 — Image Distribution to Amazon ECR
 
-**ECR Authentication:**
-
-```bash
-aws ecr get-login-password --region us-west-2 | docker login \
-  --username AWS \
-  --password-stdin \
-  <AWS_ACCOUNT_ID>.dkr.ecr.us-west-2.amazonaws.com
-```
-
-**Tag and Push:**
-
-```bash
-docker tag <local-image>:latest \
-  <AWS_ACCOUNT_ID>.dkr.ecr.us-west-2.amazonaws.com/<repository>:latest
-
-docker push \
-  <AWS_ACCOUNT_ID>.dkr.ecr.us-west-2.amazonaws.com/<repository>:latest
-```
-
-Images were verified in ECR before referencing them in Deployment manifests.
+Both images were authenticated, tagged, and pushed to their respective private ECR repositories. Worker nodes pull from ECR automatically through IAM — no separate registry credentials needed. Images were confirmed visible in ECR before any Kubernetes manifests were applied.
 
 ### Phase 5 — Kubernetes Resource Deployment
 
@@ -1052,58 +999,11 @@ Cleaning up in the correct order matters. Deleting the EKS cluster before removi
 
 ### Overview
 
-This chapter documents the operational commands, verification steps, and debugging workflow used throughout the deployment. The focus is on what was actually run — the kubectl commands, the checks at each stage, and how issues were identified and isolated.
+This chapter is the validation reference — the specific commands I used to confirm each layer was working, what correct output looked like, and how problems were isolated when something wasn't right. Chapter 8 covers the full deployment workflow; this chapter focuses on verification.
 
-The deployment was validated incrementally. Each phase was checked before moving to the next. When something broke, the scope of what could have caused it was already narrowed by what had already been verified.
+The approach throughout was incremental: check each stage before moving to the next. Infrastructure, cluster, images, Kubernetes workloads, storage, networking, load balancer, then end-to-end browser validation — in that order, each confirmed before moving forward.
 
-### Phase 1 — Infrastructure Readiness
-
-```bash
-# Verify AWS CLI is configured and credentials work
-aws sts get-caller-identity
-
-# Verify Docker is running
-docker ps
-
-# Verify kubectl is installed
-kubectl version --short --client
-
-# Verify eksctl is installed
-eksctl version
-
-# Verify Helm is installed
-helm version
-```
-
-Each tool had to be confirmed working before starting infrastructure provisioning. A broken tool mid-deployment is harder to debug than catching it upfront.
-
-### Phase 2 — EKS Cluster Provisioning and Validation
-
-```bash
-eksctl create cluster \
-  --name three-tier-cluster \
-  --region us-west-2 \
-  --node-type t2.medium \
-  --nodes-min 2 \
-  --nodes-max 2
-
-aws eks update-kubeconfig \
-  --region us-west-2 \
-  --name three-tier-cluster
-
-kubectl get nodes
-```
-
-Expected output — both worker nodes showing Ready:
-```
-NAME                                          STATUS   ROLES    AGE
-ip-xxx-xxx-xxx-xxx.us-west-2.compute.internal   Ready    <none>   Xm
-ip-xxx-xxx-xxx-xxx.us-west-2.compute.internal   Ready    <none>   Xm
-```
-
-Only after seeing both nodes in Ready state were application resources deployed.
-
-### Phase 3 — Container Image Build and Push
+### Image Build and Push
 
 ```bash
 # Navigate to service directory and build
@@ -1133,7 +1033,7 @@ docker push \
   <AWS_ACCOUNT_ID>.dkr.ecr.us-west-2.amazonaws.com/<repository>:latest
 ```
 
-### Phase 4 — Kubernetes Resource Deployment
+### Kubernetes Resource Deployment
 
 ```bash
 kubectl create namespace workshop
@@ -1162,7 +1062,7 @@ kubectl describe pod <pod-name> -n workshop
 
 The Events section in `kubectl describe` output was the most useful diagnostic — it shows what Kubernetes actually attempted.
 
-### Phase 5 — Storage Validation
+### Storage Validation
 
 ```bash
 kubectl get pvc -n workshop
@@ -1182,7 +1082,7 @@ kubectl describe pvc <pvc-name> -n workshop
 
 Showed the claim waiting for a matching volume. Applying storage resources in the correct order — PV before PVC — resolved the binding.
 
-### Phase 6 — Service and Networking Validation
+### Service and Networking Validation
 
 ```bash
 kubectl get svc -n workshop
@@ -1208,7 +1108,7 @@ The output showed the `TargetPort` was not matching the port the Node.js applica
 kubectl apply -f .
 ```
 
-### Phase 7 — AWS Load Balancer Controller
+### AWS Load Balancer Controller
 
 ```bash
 helm repo add eks https://aws.github.io/eks-charts
@@ -1238,7 +1138,7 @@ kubectl rollout restart deployment aws-load-balancer-controller -n kube-system
 
 Running `kubectl get ingress` again showed the ALB DNS address populated.
 
-### Phase 8 — Application Validation
+### Application End-to-End Validation
 
 Validation sequence:
 1. Opened the ALB DNS URL in a browser
@@ -1590,9 +1490,9 @@ Benefits:
 
 ### Overview
 
-This deployment didn't use a full observability stack — no Prometheus, no Grafana, no centralized log aggregation. The monitoring approach was practical for the scope: Kubernetes-native diagnostic commands, AWS Console verification, and container logs when needed.
+No Prometheus, no Grafana, no centralized log aggregation. The monitoring toolkit for this deployment was practical and minimal: Kubernetes-native diagnostic commands, AWS Console verification, and container logs when needed.
 
-What this chapter documents is what was actually used during the deployment — the specific tools, the specific situations where they helped, and what they revealed. Where production would require additional tooling, that's called out as a future enhancement.
+What follows is what was actually used — the specific commands, the situations where they mattered, and what they revealed. Where a production environment would need more, that's called out directly.
 
 ### What Was Actually Used
 
@@ -1706,9 +1606,9 @@ This incremental approach made root cause identification faster. When something 
 
 ### Overview
 
-This chapter is honest about scope. No load testing was performed, no benchmarks were run, and no performance metrics were collected during this deployment. The project was validated functionally — the application worked correctly end to end, data persisted, and the infrastructure remained stable throughout testing.
+No load testing, no benchmarks, no performance metrics. The project was validated functionally — the application worked correctly end to end, data persisted, and the infrastructure stayed stable throughout testing.
 
-What this chapter covers is the architectural decisions that support performance and reliability, what was actually observed, and what would need to be added to make this production-ready from a performance standpoint.
+This chapter covers what was actually observed, the architectural decisions that support scalability and reliability, and what would need to change to make this production-ready under real load.
 
 ### What Was Actually Validated
 
@@ -1823,14 +1723,7 @@ Two things stood out that I hadn't fully anticipated going in.
 
 ### Engineering Challenges Overcome
 
-| Challenge | Category | Severity | Status |
-|-----------|----------|----------|--------|
-| Dockerfile naming — Dockefile | Containerization | Medium | Resolved |
-| PVC stuck in Pending | Kubernetes Storage | High | Resolved |
-| Service port mismatch — 3500 | Kubernetes Networking | High | Resolved |
-| React build-time env vars | Application Config | Medium | Resolved |
-| Missing IAM permission | AWS Security | Critical | Resolved |
-| Ingress host configuration | Networking | Medium | Resolved |
+Six real problems blocked the deployment across six different layers — containerization, storage, networking, application configuration, IAM, and Ingress routing. Chapter 10 covers each one in detail. The critical one was IAM: a single missing permission (`elasticloadbalancing:DescribeListenerAttributes`) silently blocked ALB provisioning, and finding it required reading controller logs rather than rechecking Kubernetes manifests.
 
 These weren't theoretical problems. Each one blocked a real part of the deployment and required actual investigation to resolve.
 
@@ -1899,17 +1792,7 @@ Proposed CI workflow:
 
 ### Phase 3 — Observability Stack
 
-I'm familiar with Prometheus and Grafana and understand their role in Kubernetes monitoring, but haven't implemented them hands-on in this project. Adding a proper observability stack would be the next meaningful improvement after CI/CD.
-
-| Technology | Purpose |
-|-----------|---------|
-| Prometheus | Metrics collection from Kubernetes and applications |
-| Grafana | Dashboard visualization |
-| Alertmanager | Alert routing and notification |
-| Fluent Bit | Log forwarding from containers |
-| Elasticsearch | Centralized log storage |
-| Kibana | Log visualization and search |
-| OpenTelemetry | Unified telemetry collection |
+I'm familiar with Prometheus and Grafana conceptually and have read enough about Kubernetes monitoring to understand the patterns — metrics scraping via exporters, alerting through Alertmanager, log forwarding with Fluent Bit. But I haven't implemented any of it hands-on yet. That's the gap. Adding a real observability stack — something beyond `kubectl get pods` and the AWS Console — would be the next meaningful step after CI/CD is sorted.
 
 ### Phase 4 — GitOps with Argo CD
 
@@ -1991,7 +1874,9 @@ Application Code → Docker → Amazon ECR → Amazon EKS → Kubernetes Network
     → Application Load Balancer → Browser
 ```
 
-The most useful habit I developed was learning not to treat the deployment as a single system. When something failed, the approach was to isolate the layer first:
+The narrative analysis of each problem — what broke, what the investigation showed, what fixed it — is in Chapter 10. This chapter records the same six incidents as a structured incident log: symptom, root cause, resolution, and the specific debugging insight that applied.
+
+The approach throughout was to isolate the failing layer first, not assume a generic configuration problem:
 
 ```
 Application not working
@@ -2088,45 +1973,23 @@ targetPort: 3500
 
 ### Incident 04 — React API Configuration Failed After Deployment
 
-**Symptom:** Frontend accessible. Backend Pods running. Service configuration correct. Yet API requests kept failing.
+**Symptom:** Frontend accessible. Backend Pods running. Service configuration correct. API requests still failing.
 
-The frontend originally used a build-time environment variable for the backend URL: `REACT_APP_BACKEND_URL`. The natural assumption was that updating this in Kubernetes would change where the frontend sent requests. It didn't — because React resolves environment variables at build time, not runtime. Once the image was built, changing a Kubernetes environment variable had no effect on the already-compiled bundle.
+**Root Cause:** The frontend was using `REACT_APP_BACKEND_URL` as an environment variable. React resolves environment variables at build time — changing the Kubernetes environment variable after the image was built had no effect on the already-compiled JavaScript bundle.
 
-**Root Cause:** API URL configuration existed at build time rather than being dynamically resolved at runtime.
+**Resolution:** Changed `taskServices.js` to use a relative path (`const apiUrl = "/api/tasks"`) so the request routes through the ALB and Ingress handles the `/api` path — no compiled-in URL needed.
 
-**Resolution:** Changed `taskServices.js` to use a relative API path:
-
-```javascript
-const apiUrl = "/api/tasks";
-```
-
-With a relative path, the request goes to whatever host is serving the frontend — the ALB — and Ingress handles routing `/api` traffic to the backend.
-
-**Debugging takeaway:** Not every deployment problem belongs to Kubernetes. When infrastructure appears healthy but the application still fails, trace the request back into the application configuration.
+**Debugging takeaway:** Not every deployment problem belongs to Kubernetes. When infrastructure appears healthy but the application still fails, trace the request back into the application configuration itself.
 
 ### Incident 05 — AWS Load Balancer Controller Could Not Provision the ALB
 
-**Symptom:** Kubernetes Ingress created. Controller running. No ALB appeared. The Ingress had no external address.
+**Symptom:** Kubernetes Ingress created. Controller running. No ALB appeared in AWS Console. The Ingress ADDRESS field remained empty.
 
-The controller was running successfully while failing to complete the AWS API operations needed to provision infrastructure.
+**Root Cause:** The IAM role attached to the Load Balancer Controller was missing `elasticloadbalancing:DescribeListenerAttributes`. Controller logs showed HTTP 403 responses from AWS — an authorization failure, not a Kubernetes configuration problem.
 
-**Root Cause:** The IAM role attached to the Load Balancer Controller was missing:
+**Resolution:** Attached the missing permission to the IAM policy and restarted the controller. The Ingress received an ALB DNS address within a few minutes.
 
-```
-elasticloadbalancing:DescribeListenerAttributes
-```
-
-The controller's logs showed HTTP 403 authorization failures from AWS. That immediately changed the direction of investigation away from Kubernetes manifests and toward IAM.
-
-**Resolution:** Added the missing permission to the IAM policy. After correcting permissions and restarting the controller:
-
-```bash
-kubectl get ingress -n workshop
-```
-
-The Ingress received an external ALB DNS address.
-
-**Debugging takeaway:** When an AWS-integrated controller appears healthy but creates no infrastructure, check controller logs and IAM permissions before modifying Kubernetes manifests.
+**Debugging takeaway:** When an AWS-integrated controller appears healthy in Kubernetes but nothing happens on the AWS side, check the controller logs before touching any Kubernetes manifest.
 
 ### Incident 06 — Ingress Routing Required a Domain That Didn't Exist
 
@@ -2313,7 +2176,7 @@ That end-to-end verification is the evidence that the deployment functioned as a
 
 ### Overview
 
-This chapter documents the key architectural decisions behind the EKS deployment and the reasoning behind each one. The goal isn't to present every choice as the only valid approach — it's to explain why the selected architecture supported the objective of deploying and validating a complete three-tier application on Kubernetes, and what trade-offs came with each decision.
+Every deployment involves choices. Some are obvious, some are forced by constraints, and some only reveal their trade-offs after the fact. This chapter covers the ten decisions that shaped this deployment — why each was made, what it cost, and what alternative would make more sense in a different context.
 
 ### Decision Summary
 
@@ -2414,9 +2277,9 @@ Those weren't isolated problems. They demonstrated a property of cloud-native sy
 
 ### Overview
 
-This chapter documents the engineering perspective gained from implementing the AWS EKS deployment — not generic Kubernetes theory, but what the project actually revealed during hands-on implementation.
-
 Before this project, I had experience with individual technologies — AWS, Docker, Linux, Kubernetes concepts. What I hadn't experienced to the same extent was how quickly a deployment becomes dependent on the interaction between those layers. That's the main thing this project changed.
+
+What follows is not a summary of what Kubernetes does. It's a reflection on what implementing it actually felt like — where the difficulty was, what changed in how I think about cloud systems, and what I'd do differently next time.
 
 ### The Deployment as a Connected System
 
