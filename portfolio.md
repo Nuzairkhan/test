@@ -124,8 +124,6 @@ This is a portfolio project. The architecture reflects real patterns used in ent
 
 ## Chapter 3 — Cloud Architecture
 
-### Overview
-
 The deployment uses a three-tier architecture on Amazon EKS. Each tier — frontend, backend, and database — runs as an independent Kubernetes workload. Internal communication goes through Kubernetes-native networking; external access goes through the AWS Application Load Balancer.
 
 The reference project defined the architecture. My work was implementing it correctly on EKS — not just applying the manifests, but understanding what each component depended on, what order things had to be done in, and what to check when something didn't work.
@@ -198,21 +196,9 @@ React App → /api → Ingress → Backend Service → Node.js API → MongoDB S
 
 **Backend replicas:** Two backend Pods means one failing doesn't take down the API. Rolling updates happen without downtime.
 
-### Validation
-
-The architecture was verified through end-to-end functional testing:
-- Frontend accessible through the ALB
-- Ingress routing traffic correctly by path
-- Backend Services resolving through Kubernetes DNS
-- MongoDB connectivity established from the application layer
-- Persistent storage retaining data across Pod lifecycle events
-- Stable communication across all three tiers
-
 ---
 
 ## Chapter 4 — Infrastructure Design
-
-### Overview
 
 The infrastructure runs on AWS managed services rather than self-managed components. The goal was straightforward: let AWS handle the heavy lifting on things like the Kubernetes control plane and networking, so I could stay focused on deploying and validating the application.
 
@@ -341,23 +327,9 @@ The EBS volume was created through this Kubernetes workflow rather than manually
 | Two Worker Nodes | Basic redundancy and scheduling flexibility |
 | IAM least privilege | Controller-specific roles via IRSA |
 
-### Infrastructure Validation
-
-The infrastructure was operational once:
-- EKS cluster showing Active in us-west-2
-- Both worker nodes in Ready state
-- Docker images available in ECR
-- Kubernetes workloads scheduled across nodes
-- Application Load Balancer provisioned and reachable
-- Internal service communication working via Kubernetes DNS
-- MongoDB persistent storage bound and validated
-- All AWS resources decommissioned after testing
-
 ---
 
 ## Chapter 5 — Technology Stack
-
-### Overview
 
 The application stack — React, Node.js, MongoDB — was already part of the challenge project. My focus wasn't on selecting these technologies but on understanding how to containerize them, wire them together through Kubernetes networking, and deploy the complete three-tier architecture on EKS.
 
@@ -446,25 +418,9 @@ That's the practical value of this stack — not just how each tool works indivi
 
 ## Chapter 6 — Containerization
 
-### Overview
-
 Containerization was the first major step before anything could run on Kubernetes. Each application tier — React frontend, Node.js backend, and MongoDB — needed to be packaged as a Docker image before EKS could schedule it as a workload. All builds ran on the Ubuntu EC2 management instance.
 
 The Dockerfiles were already in the project repository. My work was working through the build process, fixing the issues that came up, pushing images to ECR, and then referencing those images in the Kubernetes Deployment manifests.
-
-### Why Containerization
-
-Running three services across different machines without containers means dealing with dependency conflicts, environment inconsistencies, and manual configuration on every host. Docker solves this by packaging each service with everything it needs to run, so behavior is identical regardless of where the container executes.
-
-For Kubernetes specifically, containers aren't optional — they're the fundamental unit that Kubernetes schedules, monitors, and manages. Everything in this deployment flows from that model.
-
-| Challenge | How Docker Addresses It |
-|-----------|------------------------|
-| Environment inconsistency | Standardized runtime with bundled dependencies |
-| Dependency conflicts | Each service runs in its own isolated container |
-| Deployment repeatability | Immutable images produce identical runtime behavior |
-| Portability | Images run on any Docker-compatible host |
-| Scaling | New containers start from the same image instantly |
 
 ### Containerized Components
 
@@ -596,8 +552,6 @@ This ensures what runs in the cluster is always a known, versioned artifact.
 ---
 
 ## Chapter 7 — Kubernetes Design
-
-### Overview
 
 The Kubernetes manifests were part of the reference project. My work was deploying them into Amazon EKS, understanding how the resources relate to each other, configuring the environment correctly, and troubleshooting what didn't work.
 
@@ -766,20 +720,9 @@ The `describe` command was particularly useful because the Events section shows 
 
 ### The Biggest Kubernetes Learning
 
-What stood out most was how interconnected everything is — and how a problem in one layer can appear as a symptom in a completely different layer.
+Running Pods don't guarantee a working application. During this deployment: healthy Pods but frontend couldn't reach backend (Service port mismatch); healthy controller but ALB not provisioning (IAM permission missing); correct manifests but PVC stuck pending (resource ordering); running backend but API requests going nowhere (React build-time configuration).
 
-You can have:
-- EKS cluster running
-- Pods in Running state
-- Containers healthy
-
-And still have:
-- Frontend unable to reach backend (Service port mismatch)
-- PVC stuck in Pending (resource ordering)
-- ALB not provisioning (IAM permission missing)
-- API requests going nowhere (React build-time configuration)
-
-The deployment wasn't a single `kubectl apply` that produced a working application. It was an iterative process of checking each layer, identifying what was actually wrong, fixing it, and verifying again. Kubernetes abstracts a significant amount of infrastructure complexity — but that abstraction doesn't remove the need to understand what's happening underneath.
+Each failure looked healthy at the layer above the actual problem. The deployment required iterating through each layer independently — not as one system, but as a stack of discrete concerns.
 
 ---
 
@@ -1338,8 +1281,6 @@ A few things that helped consistently:
 
 ## Chapter 11 — Security Architecture
 
-### Overview
-
 Security wasn't a separate phase in this deployment — it was part of how the infrastructure was set up from the beginning. IAM roles were scoped to specific workloads, application services were kept off the public internet, credentials were separated from application code, and administration was isolated to a dedicated host.
 
 This is a learning environment, not a production system. The security decisions reflect that — they're practical and appropriate for the scope. Where production would require additional controls, those are called out rather than claimed as implemented.
@@ -1467,23 +1408,6 @@ Benefits:
 
 > Production consideration: Kubernetes Secrets are Base64-encoded by default — not encrypted at rest. In production, envelope encryption using AWS KMS or integration with AWS Secrets Manager would provide stronger protection.
 
-### Security Assessment
-
-| Domain | Status |
-|--------|--------|
-| Identity Management | Implemented — IAM user + IRSA for controller |
-| OIDC Integration | Implemented via eksctl |
-| Namespace Isolation | Implemented — workshop namespace |
-| Internal Service Networking | Implemented — ClusterIP only |
-| Kubernetes Secrets | Implemented — MongoDB credentials |
-| Persistent Storage | Implemented — EBS-backed PV |
-| Load Balancer Security | Implemented — single ALB entry point |
-| HTTPS Encryption | Future Enhancement |
-| Kubernetes RBAC | Future Enhancement |
-| Network Policies | Future Enhancement |
-| AWS WAF | Future Enhancement |
-| Image Vulnerability Scanning | Future Enhancement |
-
 ---
 
 ## Chapter 12 — Monitoring & Observability
@@ -1586,20 +1510,6 @@ This incremental approach made root cause identification faster. When something 
 | Grafana Dashboards | Future Enhancement |
 | Centralized Log Aggregation | Future Enhancement |
 
-### Recommended Production Additions
-
-| Technology | Purpose |
-|-----------|---------|
-| Prometheus | Metrics collection from Kubernetes and applications |
-| Grafana | Dashboard visualization |
-| Alertmanager | Alert routing and notification |
-| Fluent Bit | Log forwarding from containers |
-| Elasticsearch | Centralized log storage |
-| Kibana | Log visualization and search |
-| Jaeger | Distributed tracing across services |
-| OpenTelemetry | Unified telemetry collection |
-| CloudWatch Alarms | Automated AWS infrastructure alerting |
-
 ---
 
 ## Chapter 13 — Performance, Scalability & Reliability
@@ -1678,18 +1588,6 @@ AWS resources created through the Ingress integration followed controller-manage
 
 Running EKS worker nodes, load balancers, and EBS volumes continue generating costs even when idle. Cleaning up promptly after validation is part of responsible cloud resource management.
 
-### Production Readiness Assessment
-
-| Area | Current Status | Production Recommendation |
-|------|---------------|--------------------------|
-| Availability | Good | Multi-AZ worker node groups |
-| Scalability | Good | Horizontal Pod Autoscaler |
-| Storage | Good | Managed database service or StatefulSets |
-| Monitoring | Basic | Prometheus + Grafana |
-| Security | Good | RBAC, Network Policies, AWS WAF |
-| Resource Governance | Not confirmed | Define CPU/memory requests and limits |
-| Performance Testing | Not performed | k6, JMeter, or Locust for load testing |
-
 ---
 
 ## Chapter 14 — Project Outcome & Engineering Impact
@@ -1731,35 +1629,13 @@ These weren't theoretical problems. Each one blocked a real part of the deployme
 
 I manually created and configured most of the environment to understand how everything worked — which was the right approach for learning, but not for repeatability. If I ran this project again, I'd use Terraform for infrastructure provisioning from the start rather than manual setup, and add a CI/CD pipeline to handle image builds, ECR pushes, and EKS deployments automatically. The manual process made the dependencies between components visible, which helped with troubleshooting. But for anything running beyond a single deployment cycle, automation is the right answer.
 
-### Key Takeaways
-
-**Small configuration details have large consequences.** A single missing IAM permission stopped the entire load balancer from provisioning. A one-character filename typo blocked the image build pipeline.
-
-**Kubernetes and AWS are separate layers that both need to be correct.** Healthy Pods don't mean correct networking. Correct Kubernetes configs don't mean correct AWS permissions.
-
-**React build behavior is different from server-side runtime behavior.** Build-time configuration needs to be understood before deployment, not discovered during debugging.
-
-**Incremental validation is faster than end-to-end testing.** Checking each layer before moving to the next caught issues earlier and made root causes easier to isolate.
-
 ---
 
 ## Chapter 15 — Future Enhancements & Platform Evolution
 
-### Overview
-
 This deployment works. The application runs, the infrastructure held up under real debugging conditions, and the complete frontend → backend → database flow was verified end to end. But it was built and deployed manually — every resource provisioned through CLI commands, every manifest applied by hand.
 
 That's the right approach for learning. It's not the right approach for a repeatable, production-scale deployment. This chapter outlines what would need to change to evolve this from a portfolio implementation into something closer to an enterprise platform.
-
-### Enhancement Roadmap
-
-| Phase | Focus Area | Primary Goal |
-|-------|-----------|-------------|
-| Phase 1 | Infrastructure as Code | Eliminate manual provisioning |
-| Phase 2 | CI/CD | Automated application delivery |
-| Phase 3 | Observability | Centralized monitoring and alerting |
-| Phase 4 | GitOps | Declarative continuous delivery |
-| Phase 5 | Production Operations | Scalability, resilience, and governance |
 
 ### Phase 1 — Infrastructure as Code with Terraform
 
@@ -1794,45 +1670,6 @@ Proposed CI workflow:
 
 I'm familiar with Prometheus and Grafana conceptually and have read enough about Kubernetes monitoring to understand the patterns — metrics scraping via exporters, alerting through Alertmanager, log forwarding with Fluent Bit. But I haven't implemented any of it hands-on yet. That's the gap. Adding a real observability stack — something beyond `kubectl get pods` and the AWS Console — would be the next meaningful step after CI/CD is sorted.
 
-### Phase 4 — GitOps with Argo CD
-
-Kubernetes resources are currently applied manually using `kubectl apply -f .`. There's no automated synchronization between the Git repository and the cluster state.
-
-I have conceptual awareness of Argo CD and GitOps workflows but haven't implemented a full GitOps deployment for this project. The idea is straightforward — the Git repository becomes the single source of truth for cluster state, and Argo CD continuously ensures the cluster matches what's defined in Git.
-
-Advantages:
-- Declarative deployments — Git is the audit trail
-- Automatic synchronization — cluster drift is detected and corrected
-- Rollback is a Git revert, not a manual kubectl operation
-- Every deployment change is reviewed through a pull request
-
-### Phase 5 — Autoscaling
-
-Replica counts are currently static. The backend runs two replicas regardless of actual traffic. Worker node count is fixed at two t2.medium instances.
-
-**Horizontal Pod Autoscaler:** Automatically adjusts replica counts based on CPU or memory metrics. For stateless workloads like the frontend and backend, this means the deployment scales to meet demand automatically.
-
-**Cluster Autoscaler:** When the cluster runs out of scheduling capacity, the Cluster Autoscaler adds worker nodes automatically. Combined with HPA, the entire infrastructure scales up and down with demand.
-
-### Phase 6 — Advanced Deployment Strategies
-
-**Blue-Green Deployment:** Maintain two production environments. Traffic switches from the current version to the new version atomically — instant rollback if something goes wrong.
-
-**Canary Deployment:** Release new versions to a small percentage of traffic first. Observe behavior before gradually increasing the rollout. Catch issues affecting real users without exposing everyone to a potentially broken release.
-
-### Phase 7 — Security Enhancements
-
-| Enhancement | Benefit |
-|-------------|---------|
-| AWS Secrets Manager | Centralized secret lifecycle management |
-| AWS KMS | Encryption of Kubernetes Secrets at rest |
-| Kubernetes RBAC | Fine-grained cluster authorization |
-| Network Policies | Pod-to-Pod traffic restrictions |
-| AWS WAF | Web application protection |
-| Image Scanning | Vulnerability detection in ECR |
-| SSM Session Manager | SSH-free EC2 administration |
-| Admission Controllers | Policy enforcement at deployment time |
-
 ### Honest Assessment
 
 The current implementation demonstrates the core engineering workflow — provisioning infrastructure, containerizing an application, deploying it on Kubernetes, debugging real issues, and validating the result. That foundation is solid.
@@ -1844,21 +1681,6 @@ The next logical steps are clear:
 - **GitOps** — introduce Argo CD to make cluster state declarative and auditable.
 
 These aren't aspirational additions — they're the natural next layer on top of what's already working.
-
-### Platform Maturity Assessment
-
-| Capability | Current | Future Target |
-|-----------|---------|--------------|
-| Kubernetes Deployment | Functional | Production Grade |
-| Infrastructure Automation | Manual — eksctl/CLI | Terraform |
-| CI/CD | Manual — SSH + kubectl | GitHub Actions |
-| Monitoring | kubectl + AWS Console | Prometheus + Grafana |
-| Logging | kubectl logs | ELK Stack |
-| Security | Good — IAM, Secrets, ClusterIP | RBAC, Network Policies, WAF |
-| GitOps | Not implemented | Argo CD |
-| Autoscaling | Static replicas | HPA + Cluster Autoscaler |
-| Service Mesh | Not implemented | Istio |
-| Deployment Strategy | Rolling updates | Blue-Green and Canary |
 
 ---
 
@@ -2034,8 +1856,6 @@ This project required debugging across Docker, ECR, Kubernetes workloads, Servic
 
 ## Chapter 17 — Deployment Validation & Operational Evidence
 
-### Overview
-
 Getting `kubectl apply` to run without errors was never the finish line. The deployment was validated progressively — each layer checked independently before moving to the next. The principle throughout: a running Pod does not necessarily mean a working application.
 
 Validation covered six distinct layers: infrastructure, Kubernetes resources, AWS integration, frontend accessibility, backend API communication, and database persistence. Each had to pass before the deployment was considered complete.
@@ -2158,18 +1978,6 @@ End-to-End Application Flow ✓ Successful
 Infrastructure Cleanup      ✓ Completed
 ```
 
-### Engineering Takeaway
-
-The deployment required multiple independent systems to work together simultaneously — AWS infrastructure, IAM permissions, Docker images, ECR, Kubernetes scheduling, Service networking, persistent storage, Load Balancer Controller, Ingress routing, and application-level API communication.
-
-A failure in any one of these layers prevented the final application from working. The completed validation demonstrated the full operational path:
-
-```
-Browser → ALB → Ingress → Kubernetes Services → Application Pods → MongoDB → Persistent Storage
-```
-
-That end-to-end verification is the evidence that the deployment functioned as an integrated cloud-native system — not merely as a collection of successfully applied Kubernetes manifests.
-
 ---
 
 ## Chapter 18 — Architecture Decisions & Engineering Trade-offs
@@ -2259,17 +2067,7 @@ Trade-off: ECR increases dependency on the AWS ecosystem. A multi-cloud deployme
 
 ### Engineering Takeaway
 
-The most important outcome wasn't that React, Node.js, and MongoDB were deployed to Kubernetes. The value came from understanding the connections between the layers.
-
-A successful request depended on every layer working correctly simultaneously:
-
-```
-Browser → ALB → Load Balancer Controller → Ingress → Service → Pod → Application → Database → Persistent Storage
-```
-
-Those weren't isolated problems. They demonstrated a property of cloud-native systems that documentation doesn't fully convey:
-
-> The application is only as reliable as the interaction between its infrastructure layers.
+The architecture decisions here weren't complex — they were pragmatic. eksctl over manual VPC setup, ECR over DockerHub, Ingress over NodePort. Each choice made the deployment simpler to validate without adding unnecessary complexity for a single-region project.
 
 ---
 
@@ -2280,40 +2078,6 @@ Those weren't isolated problems. They demonstrated a property of cloud-native sy
 Before this project, I had experience with individual technologies — AWS, Docker, Linux, Kubernetes concepts. What I hadn't experienced to the same extent was how quickly a deployment becomes dependent on the interaction between those layers. That's the main thing this project changed.
 
 What follows is not a summary of what Kubernetes does. It's a reflection on what implementing it actually felt like — where the difficulty was, what changed in how I think about cloud systems, and what I'd do differently next time.
-
-### The Deployment as a Connected System
-
-The project only worked when the complete chain worked:
-
-```
-Source Code → Docker Image → Amazon ECR → Amazon EKS → Kubernetes Deployment
-    → Service Networking → Ingress → AWS Load Balancer Controller
-    → Application Load Balancer → Browser
-```
-
-And after the frontend loaded, another chain still had to work:
-
-```
-React Frontend → /api/tasks → Ingress Path Rule → Backend Service
-    → Node.js API → MongoDB Service → MongoDB Pod → Persistent Storage
-```
-
-Understanding the deployment as one connected system — rather than a collection of independent tools — was the core learning.
-
-### Tooling Context
-
-The project involved multiple tools working together:
-
-```
-eksctl      → Creates and manages EKS infrastructure
-kubectl     → Interacts with Kubernetes resources
-Helm        → Installs packaged Kubernetes applications
-Docker      → Builds application container images
-AWS CLI     → Authenticates and interacts with AWS services
-Git/GitHub  → Manages source code and configuration
-```
-
-Learning individual commands was only part of the challenge. The harder part was understanding where each tool fit into the larger workflow — which layer it controlled, what it depended on, and what depended on it.
 
 ### Observability Was More Important Than Expected
 
@@ -2450,26 +2214,6 @@ What remains as future enhancements:
 - Image security scanning
 - GitOps workflows — Argo CD
 - Progressive deployment strategies
-
-### Engineering Perspective
-
-The value of this project is not in claiming equivalence to an enterprise production platform. The value is in having implemented the foundation manually and understanding what happens between each layer — and then being able to look at a working deployment and honestly identify what's still missing.
-
-That ability to assess your own work critically is itself a production engineering skill.
-
-```
-CURRENT STATE
-Functional Application + Containerization + Kubernetes + AWS Infrastructure
-    + Networking + Persistent Storage + Hands-On Troubleshooting
-    = Strong Cloud-Native Engineering Foundation
-
-NEXT EVOLUTION
-Automation + Infrastructure as Code + Observability + Security Hardening
-    + Autoscaling + GitOps
-    = Production-Style Platform
-```
-
-The project established the foundation. The next stage is systematically improving repeatability, security, observability, resilience, and delivery automation — not randomly adding tools, but evolving the architecture in a deliberate sequence.
 
 ---
 
